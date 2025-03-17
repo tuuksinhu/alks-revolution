@@ -294,7 +294,6 @@ bool CheckPixelCollisionPlayerAndRuby() {
             Color playerCol = playerPixels[playerImgY * playerSprite.width + playerImgX];
             Color rubyCol = rubyPixels[rubyImgY * rubySprite.width + rubyImgX];
 
-            // for collision
             if (playerCol.a > 0 && rubyCol.a > 0) {
                 UnloadImageColors(playerPixels);
                 UnloadImageColors(rubyPixels);
@@ -305,7 +304,6 @@ bool CheckPixelCollisionPlayerAndRuby() {
         }
     }
 
-    // cleanup
     UnloadImageColors(playerPixels);
     UnloadImageColors(rubyPixels);
     UnloadImage(playerImg);
