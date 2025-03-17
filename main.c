@@ -20,56 +20,58 @@
 
 #define MAX_TEXT_SIZE 1024
 
-typedef struct Bullet {
-    Vector2 Position;
-    Vector2 Direction;
-    Vector2 Velocity;
+typedef enum ActualWeapon {
+    NONE,
+    GUN,
+    SWORD,
+    WAND
+} ActualWeapon;
 
-    bool Active;
+typedef struct {
+    Vector2 position;
+    Vector2 direction;
+    Vector2 velocity;
+    bool active;
 } Bullet;
 
-typedef struct Enemy {
-    float Speed;
-
+typedef struct {
+    float speed;
+    Vector2 position;
+    Texture2D sprite;
     Color *pixels;
-
     int health;
-
     int width, height;
-
-    Texture2D Sprite;
-
-    Vector2 Position;
-
-    bool Alive;
+    bool alive;
 } Enemy;
 
 typedef struct Player {
-    float Rotation;
-    float Scale;
-
-    int Speed;
-    int Dash;
-    float Run;
-
-    Vector2 Position;
-
+    int speed;
+    int dash;
+    float run;
+    Vector2 position;
     int health;
 } Player;
 
+typedef struct Weapon {
+    int rotation;
+    int scale;
+    int movement;
+    int width;
+    int height;
+    Vector2 position;
+} Weapon;
+
 struct Player player = {
-    .Rotation = 1,
-
-    .Speed = 4,
-    .Dash = 75,
-    .Run = 7.5,
-
-    .Position = (Vector2) { HALF_WW, HALF_WH },
-
+    .speed = 4,
+    .dash = 75,
+    .run = 7.5,
+    .position = (Vector2) { HALF_WW, HALF_WH },
     .health = PLAYER_HEALTH_COUNT
 };
 
-Color transparentRaywhite = (Color){245, 245, 245, 128};
+ActualWeapon actualWeapon;
+Weapon sword;
+Weapon wand;
 
 Vector2 rubyPosition;
 
@@ -80,11 +82,13 @@ Enemy alks[ALKS_COUNT];
 Texture2D playerSprite;
 Texture2D rubySprite;
 Texture2D alksSprite;
+Texture2D swordSprite;
+Texture2D wandSprite;
 
 Font romulusFont;
 Font defaultFont;
 
-int i;
+Color transparentRaywhite = (Color){245, 245, 245, 128};
 
 char text[MAX_TEXT_SIZE] = { 0 };
 int textLength = 0;
@@ -95,9 +99,9 @@ void initAlks() {
     Color *alksPixels = LoadImageColors(alksImage);
 
     for (int i = 0; i < ALKS_COUNT; i++) {
-        alks[i].Position.x = rand() % (WW - alksSprite.width);
-        alks[i].Position.y = rand() % WH;
-        alks[i].Speed = (rand() % 3) + 1.5f;
+        alks[i].position.x = rand() % (WW - alksSprite.width);
+        alks[i].position.y = rand() % WH;
+        alks[i].speed = (rand() % 3) + 1.5f;
         alks[i].pixels = alksPixels;
         alks[i].width = alksSprite.width;
         alks[i].height = alksSprite.height;
@@ -108,8 +112,8 @@ void initAlks() {
 }
 
 void respawnAlks(int index) {
-    alks[index].Position.x = rand() % (WW - alksSprite.width);
-    alks[index].Position.y = rand() % WH;
+    alks[index].position.x = rand() % (WW - alksSprite.width);
+    alks[index].position.y = rand() % WH;
     alks[index].health = 3;
 }
 
@@ -133,15 +137,15 @@ Vector2 GetPlayerDirection() {
 Vector2 lastDirection = { 1, 0 };
 
 bool CheckCollisionBulletAndEnemy(Bullet bullet, Enemy *alks) {
-    Rectangle bulletRect = { bullet.Position.x, bullet.Position.y, 5, 5 };
-    Rectangle alksRect = { alks->Position.x, alks->Position.y, alks->width, alks->height };
+    Rectangle bulletRect = { bullet.position.x, bullet.position.y, 5, 5 };
+    Rectangle alksRect = { alks->position.x, alks->position.y, alks->width, alks->height };
 
     return CheckCollisionRecs(bulletRect, alksRect);
 }
 
 void initBullets() {
-    for (i = 0; i < MAX_BULLETS; i++) {
-        bullets[i].Active = false;
+    for (int i = 0; i < MAX_BULLETS; i++) {
+        bullets[i].active = false;
     }
 }
 
@@ -151,12 +155,12 @@ void shootBullets() {
         lastDirection = moveDir;
     }
 
-    for (i = 0; i < MAX_BULLETS; i++) {
-        if (!bullets[i].Active) {
-            bullets[i].Position = player.Position;
-            bullets[i].Velocity.x = lastDirection.x * 10;
-            bullets[i].Velocity.y = lastDirection.y * 10;
-            bullets[i].Active = true;
+    for (int i = 0; i < MAX_BULLETS; i++) {
+        if (!bullets[i].active) {
+            bullets[i].position = player.position;
+            bullets[i].velocity.x = lastDirection.x * 10;
+            bullets[i].velocity.y = lastDirection.y * 10;
+            bullets[i].active = true;
             break;
         }
     }
@@ -164,20 +168,20 @@ void shootBullets() {
 
 void updateBullets() {
     for (int i = 0; i < MAX_BULLETS; i++) {
-        if (bullets[i].Active) {
-            bullets[i].Position.x += bullets[i].Velocity.x;
-            bullets[i].Position.y += bullets[i].Velocity.y;
+        if (bullets[i].active) {
+            bullets[i].position.x += bullets[i].velocity.x;
+            bullets[i].position.y += bullets[i].velocity.y;
 
-            if (bullets[i].Position.x < 0 || bullets[i].Position.x > WW ||
-                bullets[i].Position.y < 0 || bullets[i].Position.y > WH) {
-                bullets[i].Active = false;
+            if (bullets[i].position.x < 0 || bullets[i].position.x > WW ||
+                bullets[i].position.y < 0 || bullets[i].position.y > WH) {
+                bullets[i].active = false;
             }
         }
 
         for (int j = 0; j < ALKS_COUNT; j++) {
-            if (alks[j].Position.x != -999) {
+            if (alks[j].position.x != -999) {
                 if (CheckCollisionBulletAndEnemy(bullets[i], &alks[j])) {
-                    bullets[i].Active = false;
+                    bullets[i].active = false;
                     alks[j].health--;
                     if (alks[j].health <= 0) {
                         respawnAlks(j);
@@ -190,7 +194,7 @@ void updateBullets() {
 }
 
 void drawAlksHealthBar(Enemy *alks) {
-    Rectangle healthBar = { alks->Position.x, alks->Position.y - 10, 30, 5 };
+    Rectangle healthBar = { alks->position.x, alks->position.y - 10, 30, 5 };
     Color healthColor = RED;
 
     if (alks->health == 2) healthColor = YELLOW;
@@ -230,8 +234,8 @@ Color GetStoredPixelColor(Color *pixels, int width, int height, int x, int y) {
 bool CheckPixelCollisionPlayerAndEnemy(Enemy alks, Color *playerPixels, int playerWidth, int playerHeight) {
     for (int y = 0; y < alks.height; y++) {
         for (int x = 0; x < alks.width; x++) {
-            Vector2 alksWorldPos = { alks.Position.x + x, alks.Position.y + y};
-            Vector2 playerLocalPos = { alksWorldPos.x - player.Position.x, alksWorldPos.y - player.Position.y };
+            Vector2 alksWorldPos = { alks.position.x + x, alks.position.y + y};
+            Vector2 playerLocalPos = { alksWorldPos.x - player.position.x, alksWorldPos.y - player.position.y };
 
             if (playerLocalPos.x >= 0 && playerLocalPos.x < playerWidth && 
                 playerLocalPos.y >= 0 && playerLocalPos.y < playerHeight) {
@@ -260,10 +264,10 @@ void mousePosition() {
 }
 
 Vector2 GetRandomPosition() {
-    Vector2 Position;
-    Position.x = GetRandomValue(50, WW - 50);
-    Position.y = GetRandomValue(50, WH - 50);
-    return Position;
+    Vector2 position;
+    position.x = GetRandomValue(50, WW - 50);
+    position.y = GetRandomValue(50, WH - 50);
+    return position;
 }
 
 bool CheckPixelCollisionPlayerAndRuby() {
@@ -273,17 +277,17 @@ bool CheckPixelCollisionPlayerAndRuby() {
     Color *playerPixels = LoadImageColors(playerImg);
     Color *rubyPixels = LoadImageColors(rubyImg);
 
-    int pixelStartX = (player.Position.x > rubyPosition.x) ? player.Position.x : rubyPosition.x;
-    int pixelStartY = (player.Position.y > rubyPosition.y) ? player.Position.y : rubyPosition.y;
-    int pixelEndX = ((player.Position.x + playerSprite.width) < (rubyPosition.x + rubySprite.width)) ? \
-                    (player.Position.x + playerSprite.width) : (rubyPosition.x + rubySprite.width);
-    int pixelEndY = ((player.Position.y + playerSprite.height) < (rubyPosition.y + rubySprite.height)) ? \
-                    (player.Position.y + playerSprite.height) : (rubyPosition.y + rubySprite.height);
+    int pixelStartX = (player.position.x > rubyPosition.x) ? player.position.x : rubyPosition.x;
+    int pixelStartY = (player.position.y > rubyPosition.y) ? player.position.y : rubyPosition.y;
+    int pixelEndX = ((player.position.x + playerSprite.width) < (rubyPosition.x + rubySprite.width)) ? \
+                    (player.position.x + playerSprite.width) : (rubyPosition.x + rubySprite.width);
+    int pixelEndY = ((player.position.y + playerSprite.height) < (rubyPosition.y + rubySprite.height)) ? \
+                    (player.position.y + playerSprite.height) : (rubyPosition.y + rubySprite.height);
 
     for (int y = pixelStartY; y < pixelEndY; y++) {
         for (int x = pixelStartX; x < pixelEndX; x++) {
-            int playerImgX = x - player.Position.x;
-            int playerImgY = y - player.Position.y;
+            int playerImgX = x - player.position.x;
+            int playerImgY = y - player.position.y;
             int rubyImgX = x - rubyPosition.x;
             int rubyImgY = y - rubyPosition.y;
 
@@ -349,6 +353,8 @@ int main(void) {
     playerSprite = LoadTexture("res/mine/cube1.png");
     rubySprite = LoadTexture("res/mine/ruby.png");
     alksSprite = LoadTexture("res/mine/cube1.png");
+    swordSprite = LoadTexture("res/weapons/sword.png");
+    wandSprite = LoadTexture("res/weapons/wand.png");
 
     romulusFont = LoadFont("res/font/romulus.png");
     defaultFont = GetFontDefault();
@@ -377,13 +383,13 @@ int main(void) {
     while (!WindowShouldClose()) {
         if (!gameOver && !isPaused && !commandLine) {
             for (int i = 0; i < ALKS_COUNT; i++) {
-                float dx = player.Position.x - alks[i].Position.x;
-                float dy = player.Position.y - alks[i].Position.y;
+                float dx = player.position.x - alks[i].position.x;
+                float dy = player.position.y - alks[i].position.y;
                 float distance = sqrt(dx * dx + dy * dy);
 
                 if (distance > 0) {
-                    alks[i].Position.x += (dx / distance) * alks[i].Speed;
-                    alks[i].Position.y += (dy / distance) * alks[i].Speed;
+                    alks[i].position.x += (dx / distance) * alks[i].speed;
+                    alks[i].position.y += (dy / distance) * alks[i].speed;
                 }
 
                 if (CheckPixelCollisionPlayerAndEnemy(alks[i], playerPixels, playerWidth, playerHeight)) {
@@ -401,50 +407,36 @@ int main(void) {
 
             if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) {
                 if (IsKeyPressed(KEY_SPACE)) {
-                    player.Position.y -= player.Dash;
+                    player.position.y -= player.dash;
+                } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
+                    player.position.y -= player.run;
                 }
 
-                if (IsKeyDown(KEY_LEFT_SHIFT)) {
-                    player.Position.y -= player.Run;
-                }
-
-                player.Position.y -= player.Speed;
-            }
-
-            if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) {
+                player.position.y -= player.speed;
+            } else if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) {
                 if (IsKeyPressed(KEY_SPACE)) {
-                    player.Position.y += player.Dash;
+                    player.position.y += player.dash;
+                } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
+                    player.position.y += player.run;
                 }
 
-                if (IsKeyDown(KEY_LEFT_SHIFT)) {
-                    player.Position.y += player.Run;
-                }
-
-                player.Position.y += player.Speed;
-            }
-
-            if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) {
+                player.position.y += player.speed;
+            } else if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) {
                 if (IsKeyPressed(KEY_SPACE)) {
-                    player.Position.x -= player.Dash;
+                    player.position.x -= player.dash;
+                } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
+                    player.position.x -= player.run;
                 }
 
-                if (IsKeyDown(KEY_LEFT_SHIFT)) {
-                    player.Position.x -= player.Run;
-                }
-
-                player.Position.x -= player.Speed;
-            }
-
-            if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) {
+                player.position.x -= player.speed;
+            } else if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) {
                 if (IsKeyPressed(KEY_SPACE)) {
-                    player.Position.x += player.Dash;
+                    player.position.x += player.dash;
+                } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
+                    player.position.x += player.run;
                 }
 
-                if (IsKeyDown(KEY_LEFT_SHIFT)) {
-                    player.Position.x += player.Run;
-                }
-
-                player.Position.x += player.Speed;
+                player.position.x += player.speed;
             }
 
             if (IsKeyPressed(KEY_E)) {
@@ -452,6 +444,16 @@ int main(void) {
             }
 
             updateBullets();
+
+            if (IsKeyPressed(KEY_ONE)) {
+                actualWeapon = NONE;
+            } else if (IsKeyPressed(KEY_TWO)) {
+                actualWeapon = GUN;
+            } else if (IsKeyPressed(KEY_THREE)) {
+                actualWeapon = SWORD;
+            } else if (IsKeyPressed(KEY_FOUR)) {
+                actualWeapon = WAND;
+            }
         }
 
 
@@ -460,12 +462,12 @@ int main(void) {
         Rectangle leftWall = { -10, 0, 10, WH };
         Rectangle rightWall = { WW, 0, 10, WH };
 
-        Rectangle playerRect = { player.Position.x, player.Position.y, playerSprite.width, playerSprite.height };
+        Rectangle playerRect = { player.position.x, player.position.y, playerSprite.width, playerSprite.height };
 
-        if (CheckCollisionRecs(playerRect, topWall)) player.Position.y = 0;
-        if (CheckCollisionRecs(playerRect, bottomWall)) player.Position.y = WH - playerSprite.height;
-        if (CheckCollisionRecs(playerRect, leftWall)) player.Position.x  = 0;
-        if (CheckCollisionRecs(playerRect, rightWall)) player.Position.x = WW - playerSprite.width;
+        if (CheckCollisionRecs(playerRect, topWall)) player.position.y = 0;
+        if (CheckCollisionRecs(playerRect, bottomWall)) player.position.y = WH - playerSprite.height;
+        if (CheckCollisionRecs(playerRect, leftWall)) player.position.x  = 0;
+        if (CheckCollisionRecs(playerRect, rightWall)) player.position.x = WW - playerSprite.width;
 
         mousePosition();
 
@@ -516,7 +518,7 @@ int main(void) {
 
         float cursorX = 70;
 
-        for (i = 0; i < cursorPos; i++) {
+        for (int i = 0; i < cursorPos; i++) {
             cursorX += 19;
         }
 
@@ -527,35 +529,79 @@ int main(void) {
             lastTime = currentTime;
         }
 
+        Weapon sword;
+
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+            sword.rotation = 4;
+        } else {
+            sword.rotation = 0;
+        }
+
+        sword.scale = 1;
+
+        sword.position.x = player.position.x - playerSprite.width - 1;
+        sword.position.y = player.position.y - playerSprite.height - 1;
+
+        Weapon wand;
+
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+            wand.rotation = 4;
+        } else {
+            wand.rotation = 0;
+        }
+
+        wand.scale = 1;
+
+        wand.position.x = player.position.x - playerSprite.width - 1;
+        wand.position.y = player.position.y - playerSprite.height - 1;
+
         BeginDrawing();
         ClearBackground(RAYWHITE);
             if (!gameOver) {
                 drawPlayerHealthBar(&player);
                 DrawTexture(rubySprite, rubyPosition.x, rubyPosition.y, WHITE);
 
-                DrawTexture(playerSprite, player.Position.x, player.Position.y, WHITE);
+                DrawTexture(playerSprite, player.position.x, player.position.y, WHITE);
 
                 DrawTexture(rubySprite, rubyPosition.x, rubyPosition.y, WHITE);
 
                 for (int i = 0; i < MAX_BULLETS; i++) {
-                    if (bullets[i].Active) {
-                        DrawCircleV(bullets[i].Position, 5, BLACK);
+                    if (bullets[i].active) {
+                        DrawCircleV(bullets[i].position, 5, BLACK);
                     }
                 }
 
                 for (int i = 0; i < ALKS_COUNT; i++) {
-                    if (alks[i].Position.x != -999) {
-                        DrawTexture(alksSprite, alks[i].Position.x, alks[i].Position.y, WHITE);
+                    if (alks[i].position.x != -999) {
+                        DrawTexture(alksSprite, alks[i].position.x, alks[i].position.y, WHITE);
                         drawAlksHealthBar(&alks[i]);
                     }
+                }
+
+                switch (actualWeapon) {
+                case NONE:
+
+                    break;
+
+                case GUN:
+
+                    break;
+
+                case SWORD:
+                    DrawTextureEx(swordSprite, sword.position, sword.rotation, sword.scale, WHITE);
+                    break;
+
+                case WAND:
+                    DrawTextureEx(wandSprite, wand.position, wand.rotation, wand.scale, WHITE);
+                    break;
                 }
             } else {
                 DrawText("Game Over!", HALF_WW - 60, HALF_WH, 30, BLACK);
 
                 if (IsKeyPressed(KEY_R)) {
                     gameOver = false;
-                    player.Position.x = HALF_WW;
-                    player.Position.y = HALF_WH;
+                    player.position.x = HALF_WW;
+                    player.position.y = HALF_WH;
                     player.health = PLAYER_HEALTH_COUNT;
                     initAlks();
                 }
