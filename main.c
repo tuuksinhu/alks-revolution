@@ -1,4 +1,5 @@
 #include "raylib.h"
+#include "raymath.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -13,7 +14,9 @@
 
 #define ALKS_COUNT 3
 
-#define MAX_BULLETS 10
+#define MAX_BULLETS 6
+#define MAX_MAGIC 5
+#define BULLET_SPEED 3.0f
 
 #define PLAYER_HEALTH_COUNT 5
 #define ALKS_HEALTH_COUNT 3
@@ -24,7 +27,8 @@ typedef enum ActualWeapon {
     NONE,
     GUN,
     SWORD,
-    WAND
+    WAND,
+    LASER
 } ActualWeapon;
 
 typedef struct {
@@ -61,6 +65,13 @@ typedef struct Weapon {
     Vector2 position;
 } Weapon;
 
+typedef struct {
+    Vector2 start;
+    Vector2 end;
+    bool active;
+    float duration;
+} Laser;
+
 struct Player player = {
     .speed = 4,
     .dash = 75,
@@ -70,14 +81,19 @@ struct Player player = {
 };
 
 ActualWeapon actualWeapon;
+Weapon gun;
 Weapon sword;
 Weapon wand;
+Weapon laserer;
 
 Vector2 rubyPosition;
 
 Bullet bullets[MAX_BULLETS];
+Bullet magic[MAX_MAGIC];
 
 Enemy alks[ALKS_COUNT];
+
+Laser laser;
 
 Texture2D playerSprite;
 Texture2D rubySprite;
@@ -134,8 +150,6 @@ Vector2 GetPlayerDirection() {
     return Dir;
 }
 
-Vector2 lastDirection = { 1, 0 };
-
 bool CheckCollisionBulletAndEnemy(Bullet bullet, Enemy *alks) {
     Rectangle bulletRect = { bullet.position.x, bullet.position.y, 5, 5 };
     Rectangle alksRect = { alks->position.x, alks->position.y, alks->width, alks->height };
@@ -143,27 +157,20 @@ bool CheckCollisionBulletAndEnemy(Bullet bullet, Enemy *alks) {
     return CheckCollisionRecs(bulletRect, alksRect);
 }
 
-void initBullets() {
-    for (int i = 0; i < MAX_BULLETS; i++) {
-        bullets[i].active = false;
-    }
+bool CheckCollisionPointLineLaserAndEnemy(Vector2 point, Vector2 start, Vector2 end, float threshold) {
+    float d1 = Vector2Distance(start, point);
+    float d2 = Vector2Distance(point, end);
+    float lineLength = Vector2Distance(start, end);
+    return (d1 + d2) >= (lineLength - threshold) && (d1 + d2) <= (lineLength + threshold);
 }
 
-void shootBullets() {
-    Vector2 moveDir = GetPlayerDirection();
-    if (moveDir.x != 0 || moveDir.y != 0) {
-        lastDirection = moveDir;
+Vector2 NormalizeVector2(Vector2 v) {
+    float length = sqrtf(v.x * v.x + v.y * v.y);
+    if (length != 0) {
+        v.x /= length;
+        v.y /= length;
     }
-
-    for (int i = 0; i < MAX_BULLETS; i++) {
-        if (!bullets[i].active) {
-            bullets[i].position = player.position;
-            bullets[i].velocity.x = lastDirection.x * 10;
-            bullets[i].velocity.y = lastDirection.y * 10;
-            bullets[i].active = true;
-            break;
-        }
-    }
+    return v;
 }
 
 void updateBullets() {
@@ -181,7 +188,7 @@ void updateBullets() {
         for (int j = 0; j < ALKS_COUNT; j++) {
             if (alks[j].position.x != -999) {
                 if (CheckCollisionBulletAndEnemy(bullets[i], &alks[j])) {
-                    bullets[i].active = false;
+                    // bullets[i].active = false;
                     alks[j].health--;
                     if (alks[j].health <= 0) {
                         respawnAlks(j);
@@ -192,6 +199,54 @@ void updateBullets() {
         }
     }
 }
+
+void updateMagic() {
+    for (int i = 0; i < MAX_MAGIC; i++) {
+        if (magic[i].active) {
+            magic[i].position.x += magic[i].velocity.x;
+            magic[i].position.y += magic[i].velocity.y;
+
+            if (magic[i].position.x < 0 || magic[i].position.x > WW ||
+                magic[i].position.y < 0 || magic[i].position.y > WH) {
+                magic[i].active = false;
+            }
+        }
+
+        for (int j = 0; j < ALKS_COUNT; j++) {
+            if (alks[j].position.x != -999) {
+                if (CheckCollisionBulletAndEnemy(magic[i], &alks[j])) {
+                    // magic[i].active = false;
+                    alks[j].health--;
+                    if (alks[j].health <= 0) {
+                        respawnAlks(j);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}
+
+Vector2 ExtendLine(Vector2 start, Vector2 direction, float maxLength) {
+    Vector2 end;
+    end.x = start.x + direction.x * maxLength;
+    end.y = start.y + direction.y * maxLength;
+    return end;
+}
+
+void updateLaser() {
+    for (int i = 0; i < ALKS_COUNT; i++) {
+        if (alks[i].position.x != -999) {
+            if (CheckCollisionPointLineLaserAndEnemy(alks[i].position, laser.start, laser.end, 10.0f)) {
+                alks[i].health--;
+                if (alks[i].health <= 0) {
+                    respawnAlks(i);
+                }
+            }
+        }
+    }
+}
+
 
 void drawAlksHealthBar(Enemy *alks) {
     Rectangle healthBar = { alks->position.x, alks->position.y - 10, 30, 5 };
@@ -312,6 +367,112 @@ bool CheckPixelCollisionPlayerAndRuby() {
     return false;
 }
 
+void playerKeybindings() {
+    if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) {
+        if (IsKeyPressed(KEY_SPACE)) {
+            player.position.y -= player.dash;
+        } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
+            player.position.y -= player.run;
+        }
+        player.position.y -= player.speed;
+
+    } else if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) {
+        if (IsKeyPressed(KEY_SPACE)) {
+            player.position.y += player.dash;
+        } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
+            player.position.y += player.run;
+        }
+        player.position.y += player.speed;
+
+    } else if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) {
+        if (IsKeyPressed(KEY_SPACE)) {
+            player.position.x -= player.dash;
+        } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
+            player.position.x -= player.run;
+        }
+        player.position.x -= player.speed;
+
+    } else if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) {
+        if (IsKeyPressed(KEY_SPACE)) {
+            player.position.x += player.dash;
+        } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
+            player.position.x += player.run;
+        }
+        player.position.x += player.speed;
+
+    }
+}
+
+void weaponKeybindings() {
+    if (IsKeyPressed(KEY_ONE)) {
+        actualWeapon = NONE;
+    } else if (IsKeyPressed(KEY_TWO)) {
+        actualWeapon = GUN;
+    } else if (IsKeyPressed(KEY_THREE)) {
+        actualWeapon = SWORD;
+    } else if (IsKeyPressed(KEY_FOUR)) {
+        actualWeapon = WAND;
+    } else if (IsKeyPressed(KEY_FIVE)) {
+        actualWeapon = LASER;
+    }
+
+    if (actualWeapon == GUN) {
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            for (int i = 0; i < MAX_BULLETS; i++) {
+                if (!bullets[i].active) {
+                    bullets[i].position = player.position;
+
+                    Vector2 mousePos = GetMousePosition();
+                    Vector2 direction = { mousePos.x - player.position.x, mousePos.y - player.position.y };
+                    bullets[i].velocity = NormalizeVector2(direction);
+
+                    bullets[i].velocity.x *= BULLET_SPEED;
+                    bullets[i].velocity.y *= BULLET_SPEED;
+
+                    bullets[i].active = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (actualWeapon == WAND) {
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            for (int i = 0; i < MAX_MAGIC; i++) {
+                if (!magic[i].active) {
+                    magic[i].position = player.position;
+
+                    Vector2 mousePos = GetMousePosition();
+                    Vector2 direction = { mousePos.x - player.position.x, mousePos.y - player.position.y };
+                    magic[i].velocity = NormalizeVector2(direction);
+
+                    magic[i].velocity.x *= BULLET_SPEED;
+                    magic[i].velocity.y *= BULLET_SPEED;
+
+                    magic[i].active = true;
+                }
+                break;
+            }
+        }
+    }
+
+    if (actualWeapon == LASER) {
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+            laser.active = true;
+            laser.start = player.position;
+
+            Vector2 mousePos = GetMousePosition();
+            Vector2 direction = { mousePos.x - player.position.x, mousePos.y - player.position.y };
+            direction = NormalizeVector2(direction);
+
+            float maxLength = 1000;
+            laser.end = ExtendLine(laser.start, direction, maxLength);
+        } else {
+            laser.active = false;
+        }
+    }
+}
+
 void respawnRuby() {
     int barWidth = 200;
     int barHeight = 20;
@@ -373,9 +534,6 @@ int main(void) {
 
     bool commandLine = false;
 
-    double lastTime = 0;
-    int show = 0;
-
     int cursorPos = 0;
 
     while (!WindowShouldClose()) {
@@ -403,55 +561,12 @@ int main(void) {
                 }
             }
 
-            if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) {
-                if (IsKeyPressed(KEY_SPACE)) {
-                    player.position.y -= player.dash;
-                } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
-                    player.position.y -= player.run;
-                }
-
-                player.position.y -= player.speed;
-            } else if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) {
-                if (IsKeyPressed(KEY_SPACE)) {
-                    player.position.y += player.dash;
-                } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
-                    player.position.y += player.run;
-                }
-
-                player.position.y += player.speed;
-            } else if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) {
-                if (IsKeyPressed(KEY_SPACE)) {
-                    player.position.x -= player.dash;
-                } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
-                    player.position.x -= player.run;
-                }
-
-                player.position.x -= player.speed;
-            } else if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) {
-                if (IsKeyPressed(KEY_SPACE)) {
-                    player.position.x += player.dash;
-                } else if (IsKeyDown(KEY_LEFT_SHIFT)) {
-                    player.position.x += player.run;
-                }
-
-                player.position.x += player.speed;
-            }
-
-            if (IsKeyPressed(KEY_E)) {
-                shootBullets();
-            }
+            playerKeybindings();
 
             updateBullets();
+            updateMagic();
 
-            if (IsKeyPressed(KEY_ONE)) {
-                actualWeapon = NONE;
-            } else if (IsKeyPressed(KEY_TWO)) {
-                actualWeapon = GUN;
-            } else if (IsKeyPressed(KEY_THREE)) {
-                actualWeapon = SWORD;
-            } else if (IsKeyPressed(KEY_FOUR)) {
-                actualWeapon = WAND;
-            }
+            weaponKeybindings();
         }
 
 
@@ -513,43 +628,18 @@ int main(void) {
             if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_L)) loadFromFile("commandLine.txt");
         }
 
-
         float cursorX = 70;
-
         for (int i = 0; i < cursorPos; i++) {
             cursorX += 19;
         }
 
-        double currentTime = GetTime();
-
-        if (currentTime - lastTime >= 1.0) {
-            show = !show;
-            lastTime = currentTime;
-        }
-
         Weapon sword;
-
-        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-            sword.rotation = 4;
-        } else {
-            sword.rotation = 0;
-        }
-
         sword.scale = 1;
-
         sword.position.x = player.position.x - playerSprite.width - 1;
         sword.position.y = player.position.y - playerSprite.height - 1;
 
         Weapon wand;
-
-        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
-            wand.rotation = 4;
-        } else {
-            wand.rotation = 0;
-        }
-
         wand.scale = 1;
-
         wand.position.x = player.position.x - playerSprite.width - 1;
         wand.position.y = player.position.y - playerSprite.height - 1;
 
@@ -563,16 +653,22 @@ int main(void) {
 
                 DrawTexture(rubySprite, rubyPosition.x, rubyPosition.y, WHITE);
 
-                for (int i = 0; i < MAX_BULLETS; i++) {
-                    if (bullets[i].active) {
-                        DrawCircleV(bullets[i].position, 5, BLACK);
-                    }
-                }
-
                 for (int i = 0; i < ALKS_COUNT; i++) {
                     if (alks[i].position.x != -999) {
                         DrawTexture(alksSprite, alks[i].position.x, alks[i].position.y, WHITE);
                         drawAlksHealthBar(&alks[i]);
+                    }
+                }
+
+                for (int i = 0; i < MAX_BULLETS; i++) {
+                    if (bullets[i].active) {
+                        DrawCircleV(bullets[i].position, 2, BLACK);
+                    }
+                }
+
+                for (int i = 0; i < MAX_MAGIC; i++) {
+                    if (magic[i].active) {
+                        DrawCircleV(magic[i].position, 25, BLUE);
                     }
                 }
 
@@ -591,6 +687,13 @@ int main(void) {
 
                 case WAND:
                     DrawTextureEx(wandSprite, wand.position, wand.rotation, wand.scale, WHITE);
+
+                    break;
+
+                case LASER:
+                    if (laser.active) {
+                        DrawLineEx(laser.start, laser.end, 3, RED);
+                    }
                     break;
                 }
             } else {
